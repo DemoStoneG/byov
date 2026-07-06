@@ -1,0 +1,36 @@
+name: byov
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  # 1. 基础环境与核心科学计算库（全部交由 Conda 管理）
+  - python=3.10.4
+  - numpy=1.23.1
+  - scipy=1.9.1
+  - pandas=1.5.0
+  - scikit-learn=1.0.2
+  - matplotlib=3.6.0
+  
+  # 2. PyTorch 全家桶及底层 CUDA 依赖（交由 Conda 统一管理）
+  - pytorch=1.12.1
+  - torchvision=0.13.1
+  - torchaudio=0.12.1
+  - cudatoolkit=11.6.0
+  
+  # 3. 其他常用 Conda 包
+  - ffmpeg=4.3
+  - pip
+  
+  # 4. 仅在 Conda 中找不到的边缘包（交由 Pip 补充）
+  - pip:
+    - open-clip-torch==2.0.2
+    - timm==0.6.12
+    - transformers==4.19.2
+    - huggingface-hub==0.10.0
+    - pytorch-lightning==1.6.5.post0
+    - torchmetrics==0.9.3
+    - opencv-python==4.5.5.64
+    - plotly==5.11.0
+    - seaborn==0.12.1
+    # ... 其余纯 Python 或无冲突的小众库可放在这里
