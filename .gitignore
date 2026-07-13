@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+
+logs/
+outputs/
+lightning_logs/
+
+*.ckpt
+*.npy
+*.pt
+*.pth
+*.tfevents*

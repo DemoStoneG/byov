@@ -1,53 +1,103 @@
+import logging
 import os
-import json
+import sys
 
-from pytorch_lightning import Trainer
+from pytorch_lightning import Trainer, seed_everything
+from pytorch_lightning.callbacks import Callback, ModelCheckpoint
+from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
+
 from utils.config import argparser
+from utils.experiment import (
+    maybe_create_outputs_symlink,
+    prepare_experiment,
+    save_run_metadata,
+    setup_logging,
+    update_best_checkpoint,
+)
 from utils.util import CustomModelCheckpoint
 from video_tasks import VideoAlignment
 
 
-def main():
-    task = VideoAlignment(args)
+class BestCheckpointMetadata(Callback):
+    def __init__(self, checkpoint_callback):
+        self.checkpoint_callback = checkpoint_callback
 
-    custom_checkpoint_callback = CustomModelCheckpoint(
+    def on_validation_end(self, trainer, pl_module):
+        update_best_checkpoint(
+            self.checkpoint_callback.best_model_path,
+            self.checkpoint_callback.best_model_score,
+            pl_module.args.metrics_dir,
+            pl_module.args.checkpoints_dir,
+        )
+
+    def on_train_end(self, trainer, pl_module):
+        self.on_validation_end(trainer, pl_module)
+
+
+def build_trainer(args):
+    periodic_checkpoint = CustomModelCheckpoint(
         every_n_epochs=args.save_every,
-        filename="{epoch}",
+        dirpath=args.checkpoints_dir,
+        filename="epoch={epoch:03d}",
+        auto_insert_metric_name=False,
         save_top_k=-1,
+        save_last=True,
+    )
+    best_checkpoint = ModelCheckpoint(
+        dirpath=args.checkpoints_dir,
+        filename="best-epoch={epoch:03d}-val_loss={val_loss:.4f}",
+        auto_insert_metric_name=False,
+        monitor="val_loss",
+        mode="min",
+        save_top_k=1,
+    )
+    tensorboard_logger = TensorBoardLogger(
+        save_dir=args.run_dir,
+        name="tensorboard",
+        version="",
+    )
+    csv_logger = CSVLogger(
+        save_dir=args.run_dir,
+        name="metrics",
+        version="",
     )
 
-    trainer = Trainer(
-        # devices=args.num_gpus,
+    return Trainer(
         devices=[0],
         accelerator="gpu",
-        callbacks=custom_checkpoint_callback,
+        callbacks=[periodic_checkpoint, best_checkpoint, BestCheckpointMetadata(best_checkpoint)],
         max_epochs=args.epochs,
-        default_root_dir=args.output_dir,
-        log_every_n_steps=4
+        default_root_dir=args.run_dir,
+        logger=[tensorboard_logger, csv_logger],
+        log_every_n_steps=4,
     )
 
+
+def main(args):
+    logger = logging.getLogger(__name__)
+    seed_everything(args.seed, workers=True)
+    task = VideoAlignment(args)
+    trainer = build_trainer(args)
+
+    logger.info("Run directory: %s", args.run_dir)
+    if args.resume_ckpt:
+        if not os.path.isfile(args.resume_ckpt):
+            raise FileNotFoundError(f"Resume checkpoint not found: {args.resume_ckpt}")
+        logger.info("Resume training from %s", args.resume_ckpt)
+    else:
+        logger.info("Start training from scratch")
+
     if args.eval_only:
-        # trainer.validate(task, ckpt_path=args.ckpt)
         trainer.test(task, ckpt_path=args.ckpt)
     else:
-        trainer.fit(task,ckpt_path="/mnt/data/wzh/projects/byov-main/logs/exp_break_eggs/bestconfig/lightning_logs/version_1/checkpoints/epoch=89.ckpt")
+        trainer.fit(task, ckpt_path=args.resume_ckpt or None)
 
 
-if __name__ == '__main__':
-    args = argparser.parse_args()
-    args.output_dir = os.path.join('./logs/exp_'+args.dataset, args.output_dir)
-    os.makedirs(args.output_dir, exist_ok=True)
-    with open(f'{args.output_dir}/args.json', 'w') as f:
-        json.dump(vars(args), f, indent=4)
-    main()
-
-
-# ssh -L 8878:localhost:6009 diml@165.132.57.160
-# ssh -L 8888:localhost:6008 diml@165.132.57.160
-# tensorboard --logdir './logs/exp_break_eggs/bestconfig/lightning_logs/version_57' --port=6008
-# tensorboard --logdir './logs/exp_pour_liquid/bestconfig/lightning_logs/version_8' --port=6008
-
-# tensorboard --logdir './logs/exp_pour_milk/with_em/lightning_logs/version_0' --port=6009
-# tensorboard --logdir './logs/exp_pour_milk/bestconfig/lightning_logs/version_22' --port=6009
-# tensorboard --logdir './logs/exp_tennis_forehand/bestconfig/lightning_logs/version_6' --port=6009
-# tensorboard --logdir './logs/exp_tennis_forehand/bestconfig/lightning_logs/version_4' --port=6009
+if __name__ == "__main__":
+    cli_args = argparser.parse_args()
+    args, is_resume = prepare_experiment(cli_args)
+    logger = setup_logging(args.logs_dir)
+    save_run_metadata(args, sys.argv, is_resume)
+    maybe_create_outputs_symlink(args.output_root)
+    logger.info("Prepared run directory: %s", args.run_dir)
+    main(args)

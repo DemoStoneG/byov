@@ -1,5 +1,6 @@
 import os
 import sys
+import logging
 
 # 添加项目根目录到Python路径
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -19,6 +20,8 @@ from evaluation.frame_retrieval import frame_retrieval
 from evaluation.event_completion import compute_progression_value
 from evaluation.classification import classification
 
+logger = logging.getLogger(__name__)
+
 
 def prepare_data_loader(args, mode, batch_size=1, num_workers=0):
     dataset = VideoAlignmentDownstreamDataset(args, mode)
@@ -29,11 +32,12 @@ def prepare_data_loader(args, mode, batch_size=1, num_workers=0):
         shuffle=False,
         drop_last=False,
     )
-    print(f'Data loader len {len(data_loader)}')
+    logger.info('Data loader %s len %s', mode, len(data_loader))
     return data_loader, dataset
 
 
 def extract_embedding(mode, data_loader, base_model, encoder, save_path, device):
+    os.makedirs(save_path, exist_ok=True)
     embeds_list = []
     labels_list = []
     for batch in tqdm(data_loader):
@@ -50,15 +54,22 @@ def extract_embedding(mode, data_loader, base_model, encoder, save_path, device)
         labels_list.append(np.array(frame_label))
 
     embeds = np.concatenate(embeds_list, axis=0)
-    np.save(f'{save_path}/{mode}_embeds.npy', embeds)
-    print(f'Saved {mode} embeds to {save_path}/{mode}_embeds.npy')
+    embeds_path = os.path.join(save_path, f'{mode}_embeds.npy')
+    np.save(embeds_path, embeds)
+    logger.info('Saved %s embeds to %s', mode, embeds_path)
     labels = np.concatenate(labels_list, axis=0)
     labels = np.squeeze(labels)
-    np.save(f'{save_path}/{mode}_label.npy', labels)
-    print(f'Saved {mode} labels to {save_path}/{mode}_label.npy')
+    labels_path = os.path.join(save_path, f'{mode}_label.npy')
+    np.save(labels_path, labels)
+    logger.info('Saved %s labels to %s', mode, labels_path)
 
 
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    )
     device = torch.device("cuda:0")
     args = argparser.parse_args()
     assert args.eval_mode in ['val', 'test']
@@ -109,7 +120,5 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
 
 

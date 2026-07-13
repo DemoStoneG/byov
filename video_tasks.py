@@ -1,4 +1,6 @@
 import copy
+import json
+import logging
 import os
 import numpy as np
 import torch
@@ -8,6 +10,9 @@ from dataset.video_align_dataset import VideoAlignmentTrainDataset
 from models.embedder import Embedder, byov_encoder, byov_decoder
 from evaluation.evaluate_features import prepare_data_loader, extract_embedding, classification, frame_retrieval, compute_progression_value, kendalls_tau
 from utils.pos_embed import interpolate_pos_embed
+
+logger = logging.getLogger(__name__)
+
 
 class VideoAlignment(LightningModule):
     def __init__(self, args):
@@ -20,7 +25,7 @@ class VideoAlignment(LightningModule):
         self.data_path = None
         self.ds_loader_train, self.ds_dataset_train = prepare_data_loader(args, 'train', batch_size=1)
         self.ds_loader_val, self.ds_dataset_val = prepare_data_loader(args, 'val', batch_size=1)
-        print(f'constructing downstream loader train {len(self.ds_loader_train)} | val {len(self.ds_loader_val)}')
+        logger.info('Constructed downstream loaders: train=%s val=%s', len(self.ds_loader_train), len(self.ds_loader_val))
 
 
     def training_step(self, batch, batch_idx):
@@ -58,7 +63,8 @@ class VideoAlignment(LightningModule):
 
         # loss = loss1 #loss2 + loss3
         loss = loss1 + loss2 + loss3 
-        self.log('train_loss', loss, on_step=True, on_epoch=True)
+        self.log('train/loss_step', loss, on_step=True, on_epoch=False)
+        self.log('train/loss_epoch', loss, on_step=False, on_epoch=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -97,46 +103,77 @@ class VideoAlignment(LightningModule):
         loss = loss1 + loss2 + loss3 
         embeddings = torch.stack((z1, z2), dim=1)  # (bs, 2, 32, 256)
 
-        # self.log('val_loss', loss, on_step=True, on_epoch=True)
+        self.log('val/loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log('val_loss', loss, on_step=False, on_epoch=True)
         self.evaluate_downstream(batch_idx, embeddings.device)
         return loss
 
     def evaluate_downstream(self, batch_idx, device):
         if self.args.ds_every_n_epoch > 0 and self.global_rank == 0 and batch_idx == 0 and (
                 self.current_epoch + 1) % self.args.ds_every_n_epoch == 0:
-            extract_embedding('train', self.ds_loader_train, self.model, self.encoder, self.args.output_dir, device)
-            extract_embedding('val', self.ds_loader_val, self.model, self.encoder, self.args.output_dir, device)
+            epoch_name = f'epoch_{self.current_epoch:03d}'
+            embedding_dir = os.path.join(self.args.artifacts_dir, 'embeddings', epoch_name)
+            os.makedirs(embedding_dir, exist_ok=True)
+            extract_embedding('train', self.ds_loader_train, self.model, self.encoder, embedding_dir, device)
+            extract_embedding('val', self.ds_loader_val, self.model, self.encoder, embedding_dir, device)
+            metrics = {
+                'epoch': int(self.current_epoch),
+                'display_epoch': int(self.current_epoch + 1),
+            }
 
             if '1' in self.args.eval_task:  # classification
-                regular_f1, ego2exo_val_f1, exo2ego_val_f1 = classification(self.args.output_dir,
+                regular_f1, ego2exo_val_f1, exo2ego_val_f1 = classification(embedding_dir,
                                                                             self.ds_dataset_train.video_ego_id,
                                                                             self.ds_dataset_val.video_ego_id)
-                self.log('regular_f1', regular_f1)
-                self.log('ego2exo_val_f1', ego2exo_val_f1)
-                self.log('exo2ego_val_f1', exo2ego_val_f1)
+                metrics['classification'] = {
+                    'regular_f1': float(regular_f1),
+                    'ego2exo_val_f1': float(ego2exo_val_f1),
+                    'exo2ego_val_f1': float(exo2ego_val_f1),
+                }
+                self.log('classification/regular_f1', regular_f1, on_step=False, on_epoch=True)
+                self.log('classification/ego2exo_val_f1', ego2exo_val_f1, on_step=False, on_epoch=True)
+                self.log('classification/exo2ego_val_f1', exo2ego_val_f1, on_step=False, on_epoch=True)
 
             if '2' in self.args.eval_task:  # retrieval
-                regular_map10, ego2exo_val_map10, exo2ego_val_map10 = frame_retrieval(self.args.output_dir,
+                regular_map10, ego2exo_val_map10, exo2ego_val_map10 = frame_retrieval(embedding_dir,
                                                                                       self.ds_dataset_val.video_len_list,
                                                                                       self.ds_dataset_val.video_paths1)
-                self.log('regular_map10', float(regular_map10))
-                self.log('ego2exo_val_map10', float(ego2exo_val_map10))
-                self.log('exo2ego_val_map10', float(exo2ego_val_map10))
+                metrics['retrieval'] = {
+                    'regular_map10': float(regular_map10),
+                    'ego2exo_val_map10': float(ego2exo_val_map10),
+                    'exo2ego_val_map10': float(exo2ego_val_map10),
+                }
+                self.log('retrieval/regular_map10', float(regular_map10), on_step=False, on_epoch=True)
+                self.log('retrieval/ego2exo_val_map10', float(ego2exo_val_map10), on_step=False, on_epoch=True)
+                self.log('retrieval/exo2ego_val_map10', float(exo2ego_val_map10), on_step=False, on_epoch=True)
 
             if '3' in self.args.eval_task:  # event completion
                 modify_embeddings = True if self.args.dataset == 'pour_liquid' else False  # augment embedding for pour_liquid
-                train_score, val_score = compute_progression_value(self.args.output_dir, self.ds_dataset_train.video_len_list,
+                train_score, val_score = compute_progression_value(embedding_dir, self.ds_dataset_train.video_len_list,
                                                                    self.ds_dataset_val.video_len_list, modify_embeddings)
-                self.log('train_score', train_score)
-                self.log('val_score', val_score)
+                metrics['progression'] = {
+                    'train_score': float(train_score),
+                    'val_score': float(val_score),
+                }
+                self.log('progression/train_score', train_score, on_step=False, on_epoch=True)
+                self.log('progression/val_score', val_score, on_step=False, on_epoch=True)
 
             if '4' in self.args.eval_task:  # kendall's tau
-                train_tau = kendalls_tau(self.args.output_dir, self.ds_dataset_train.video_len_list,
+                train_tau = kendalls_tau(embedding_dir, self.ds_dataset_train.video_len_list,
                                          self.ds_dataset_train.video_paths1, 'train', False)
-                val_tau = kendalls_tau(self.args.output_dir, self.ds_dataset_val.video_len_list,
+                val_tau = kendalls_tau(embedding_dir, self.ds_dataset_val.video_len_list,
                                        self.ds_dataset_val.video_paths1, 'val', False)
-                self.log('train_tau', train_tau)
-                self.log('val_tau', val_tau)
+                metrics['kendall'] = {
+                    'train_tau': float(train_tau),
+                    'val_tau': float(val_tau),
+                }
+                self.log('kendall/train_tau', train_tau, on_step=False, on_epoch=True)
+                self.log('kendall/val_tau', val_tau, on_step=False, on_epoch=True)
+
+            metrics_path = os.path.join(self.args.metrics_dir, f'downstream_{epoch_name}.json')
+            with open(metrics_path, 'w') as f:
+                json.dump(metrics, f, indent=4)
+            logger.info('Saved downstream metrics to %s', metrics_path)
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.args.lr, weight_decay=self.args.wd)
@@ -155,4 +192,3 @@ class VideoAlignment(LightningModule):
                                              batch_size=self.args.batch_size,
                                              num_workers=self.args.num_workers)
         return loader
-

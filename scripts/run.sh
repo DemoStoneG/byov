@@ -1,35 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 <dataset-name>"
+if [ "$#" -lt 1 ] || [ "$#" -gt 3 ]; then
+    echo "Usage: $0 <dataset-name> [run-name] [seed]"
     exit 1
 fi
 
-if [ "$1" = "break_eggs" ]; then
-  python train.py --dataset break_eggs \
-                --output_dir bestconfig  \
-                --batch_size 4\
-                --freeze_base  \
+DATASET="$1"
+RUN_NAME="${2:-baseline}"
+SEED="${3:-42}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-/mnt/data/wzh/experiments/byov}"
 
-elif [ "$1" = "pour_milk" ]; then
-  # pour milk, missing one det_bounding_box.pickle file (to be updated later), basic no object-centric encoder version below
-  python train.py --dataset pour_milk \
-                --output_dir bestconfig  \
-                --batch_size 1\
-                --freeze_base
+COMMON_ARGS=(
+  --dataset "$DATASET"
+  --output_root "$OUTPUT_ROOT"
+  --run_name "$RUN_NAME"
+  --seed "$SEED"
+  --lr 1e-5
+  --freeze_base
+)
 
-elif [ "$1" = "pour_liquid" ]; then
-  python train.py --dataset pour_liquid \
-                --output_dir bestconfig  \
-                --batch_size 1\
-                --freeze_base
-
-elif [ "$1" = "tennis_forehand" ]; then
-  python train.py --dataset tennis_forehand \
-                --num_frames 20 \
-                --output_dir bestconfig  \
-                --batch_size 1\
-                --freeze_base
+if [ "$DATASET" = "break_eggs" ]; then
+  python train.py "${COMMON_ARGS[@]}" --batch_size 4
+elif [ "$DATASET" = "pour_milk" ]; then
+  # pour milk is missing one det_bounding_box.pickle file; use the basic encoder setup.
+  python train.py "${COMMON_ARGS[@]}" --batch_size 1
+elif [ "$DATASET" = "pour_liquid" ]; then
+  python train.py "${COMMON_ARGS[@]}" --batch_size 1
+elif [ "$DATASET" = "tennis_forehand" ]; then
+  python train.py "${COMMON_ARGS[@]}" --num_frames 20 --batch_size 1
 else
-    echo "Unknown dataset: $1, select among [break_eggs, pour_milk, pour_liquid, tennis_forehand]"
+    echo "Unknown dataset: $DATASET, select among [break_eggs, pour_milk, pour_liquid, tennis_forehand]"
     exit 2
 fi
