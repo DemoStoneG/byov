@@ -1,0 +1,8 @@
+python train.py \
+  --dry_run config \
+  --output_root ./tmp/byov_dry_run \
+  --dataset break_eggs \
+  --run_name drytest \
+  --batch_size 4 \
+  --lr 1e-5 \
+  --seed 42
