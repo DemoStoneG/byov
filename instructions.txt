@@ -3,7 +3,7 @@ bash scripts/run.sh \
   --dataset break_eggs \
   --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
   --output-root /root/autodl-tmp/experiments/byov_training \
-  --vision-encoder-path /path/to/transformers-clip-vit-b16 \
+  --vision-encoder-path /root/autodl-tmp/ai_models/openai-clip-vit-base-patch16 \
   --run-name smoke_test \
   --smoke-test
 
@@ -13,14 +13,13 @@ bash scripts/run.sh \
   --dataset break_eggs \
   --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
   --output-root /root/autodl-tmp/experiments/byov_training \
-  --vision-encoder-path /path/to/transformers-clip-vit-b16 \
+  --vision-encoder-path /root/autodl-tmp/ai_models/openai-clip-vit-base-patch16 \
   --run-name byov_clip_vit_b16 \
   --ds-every 10 \
   --save-every 10
 
 
 --eval
-
 bash scripts/eval.sh \
   --dataset break_eggs \
   --checkpoint /root/autodl-tmp/datasets/AE2/AE2_ckpts/break_eggs.ckpt \
