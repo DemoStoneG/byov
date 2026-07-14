@@ -46,7 +46,6 @@ outputs -> /mnt/data/wzh/experiments/byov
     resume.log          # only when using --resume
   tensorboard/
   checkpoints/
-    epoch=010.ckpt
     last-epoch=083.ckpt
     best-val_loss-epoch=037-val_loss=0.4321.ckpt
     best-classification-epoch=080-score=0.9000.ckpt
@@ -78,7 +77,8 @@ bash scripts/run.sh \
   --vision-encoder-path /root/autodl-tmp/ai_models/transformers-clip-vit-b16 \
   --run-name baseline \
   --seed 42 \
-  --ds-every 10
+  --ds-every 10 \
+  --save-every 0
 ```
 
 断点续训：

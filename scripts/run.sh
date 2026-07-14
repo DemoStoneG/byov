@@ -28,7 +28,7 @@ Options:
   --batch-size <int>            Default: 4 for break_eggs, otherwise 1
   --num-workers <int>           Default: 0
   --ds-every <int>              Downstream validation interval; 0 disables it (default: 10)
-  --save-every <int>            Periodic checkpoint interval (default: 10)
+  --save-every <int>            Periodic epoch snapshots; 0 disables them (default: 0)
   --eval-tasks <ids>            Downstream tasks used during training (default: 1234)
   --smoke-test                  Run one train batch and one validation batch for one epoch
   --dry-run                     Only validate arguments and output configuration
@@ -52,7 +52,7 @@ WEIGHT_DECAY="5e-6"
 BATCH_SIZE=""
 NUM_WORKERS=0
 DS_EVERY=10
-SAVE_EVERY=10
+SAVE_EVERY=0
 EVAL_TASKS="1234"
 SMOKE_TEST=0
 DRY_RUN=0

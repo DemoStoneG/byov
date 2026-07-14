@@ -43,16 +43,6 @@ def build_trainer(args):
                 metadata_filename=self.metadata_filename,
             )
 
-    periodic_checkpoint = ModelCheckpoint(
-        dirpath=args.checkpoints_dir,
-        filename="epoch={completed_epochs:03.0f}",
-        auto_insert_metric_name=False,
-        save_top_k=-1,
-        save_last=args.save_every == 1,
-        every_n_epochs=args.save_every,
-        save_on_train_epoch_end=False,
-    )
-    periodic_checkpoint.CHECKPOINT_NAME_LAST = "last-epoch={completed_epochs:03.0f}"
     best_checkpoint = TrackedModelCheckpoint(
         metadata_monitor="val_loss",
         metadata_filename="best.json",
@@ -84,8 +74,20 @@ def build_trainer(args):
         every_n_epochs=1,
         save_on_train_epoch_end=False,
     )
-    callbacks = [periodic_checkpoint, best_checkpoint]
-    if args.save_every > 1:
+    callbacks = [best_checkpoint]
+    if args.save_every > 0:
+        periodic_checkpoint = ModelCheckpoint(
+            dirpath=args.checkpoints_dir,
+            filename="epoch={completed_epochs:03.0f}",
+            auto_insert_metric_name=False,
+            save_top_k=-1,
+            save_last=args.save_every == 1,
+            every_n_epochs=args.save_every,
+            save_on_train_epoch_end=False,
+        )
+        periodic_checkpoint.CHECKPOINT_NAME_LAST = "last-epoch={completed_epochs:03.0f}"
+        callbacks.append(periodic_checkpoint)
+    if args.save_every != 1:
         callbacks.append(latest_checkpoint)
 
     if args.ds_every_n_epoch > 0:
@@ -145,8 +147,8 @@ def validate_training_inputs(args):
         raise RuntimeError('BYOV training requires an available CUDA GPU')
     if not args.freeze_base:
         raise ValueError('Paper reproduction requires the CLIP backbone to be frozen; pass --freeze_base')
-    if args.save_every < 1:
-        raise ValueError('--save_every must be at least 1')
+    if args.save_every < 0:
+        raise ValueError('--save_every cannot be negative')
     if args.ds_every_n_epoch < 0:
         raise ValueError('--ds_every_n_epoch cannot be negative')
     unknown_tasks = set(args.eval_task) - set('1234')

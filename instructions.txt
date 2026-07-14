@@ -15,8 +15,7 @@ bash scripts/run.sh \
   --output-root /root/autodl-tmp/experiments/byov_training \
   --vision-encoder-path /root/autodl-tmp/ai_models/openai-clip-vit-base-patch16 \
   --run-name byov_clip_vit_b16 \
-  --ds-every 10 \
-  --save-every 10
+  --ds-every 10
 
 
 --eval
