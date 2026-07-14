@@ -10,3 +10,14 @@ lightning_logs/
 *.pt
 *.pth
 *.tfevents*
+
+# Python environments
+.venv/
+venv/
+env/
+
+# IDE and system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
