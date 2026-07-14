@@ -46,17 +46,20 @@ outputs -> /mnt/data/wzh/experiments/byov
     resume.log          # only when using --resume
   tensorboard/
   checkpoints/
-    epoch=009.ckpt
-    last.ckpt
-    best.ckpt
-    best-epoch=119-val_loss=0.4321.ckpt
+    epoch=010.ckpt
+    last-epoch=083.ckpt
+    best-val_loss-epoch=037-val_loss=0.4321.ckpt
+    best-classification-epoch=080-score=0.9000.ckpt
+    best-retrieval-epoch=100-score=0.8000.ckpt
+    best-progression-epoch=120-score=0.7000.ckpt
+    best-kendall-epoch=110-score=0.9500.ckpt
   metrics/
     metrics.csv
     best.json
-    downstream_epoch_009.json
+    downstream_epoch_010.json
   artifacts/
     embeddings/
-      epoch_009/
+      epoch_010/
         train_embeds.npy
         train_label.npy
         val_embeds.npy
@@ -68,32 +71,26 @@ outputs -> /mnt/data/wzh/experiments/byov
 正式训练：
 
 ```bash
-python train.py \
+bash scripts/run.sh \
   --dataset break_eggs \
-  --output_root /mnt/data/wzh/experiments/byov \
-  --run_name baseline \
+  --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
+  --output-root /root/autodl-tmp/experiments/byov_training \
+  --vision-encoder-path /root/autodl-tmp/ai_models/transformers-clip-vit-b16 \
+  --run-name baseline \
   --seed 42 \
-  --batch_size 4 \
-  --lr 1e-5 \
-  --freeze_base
-```
-
-脚本模板：
-
-```bash
-bash scripts/run.sh break_eggs baseline 42
+  --ds-every 10
 ```
 
 断点续训：
 
 ```bash
-python train.py --resume /mnt/data/wzh/experiments/byov/break_eggs/<run_dir>
+bash scripts/run.sh --resume /root/autodl-tmp/experiments/byov_training/break_eggs/<run_dir>
 ```
 
 `--resume` 会自动读取：
 
 ```text
-<run_dir>/checkpoints/last.ckpt
+<run_dir>/checkpoints/last-epoch=NNN.ckpt
 ```
 
 并继续写入同一个 run 目录。
@@ -122,6 +119,10 @@ python train.py \
 - 日志和配置文件是否能写入。
 - 环境中 Lightning / matplotlib / libstdc++ 有问题时，训练入口的轻量部分是否正常。
 
+真正启动完整训练前还应运行 `--smoke-test`。它执行一个 train batch、一个 val batch、
+backward、optimizer step 和 checkpoint/log 落盘。Smoke test 会自动设置
+`ds_every_n_epoch=0`，避免为了入口检查而提取全量下游 embedding。
+
 ## 5. TensorBoard 和指标
 
 TensorBoard 写入：
@@ -148,6 +149,14 @@ best checkpoint 当前固定按训练目标选择：
 monitor: val/loss
 mode: min
 ```
+
+此外，启用周期下游验证时，会分别按 classification regular F1、retrieval regular
+mAP@10、progression validation score 和 Kendall validation tau 保存对应 best checkpoint。
+所有 checkpoint 文件名都使用从 1 开始的“已完成 epoch 数”。不使用 test 指标选择模型。
+
+`ds_every_n_epoch=0` 只关闭周期下游验证。BYOV 主训练是自监督的，不读取
+`label.pickle`；设置为正数时，代码才读取标签并每隔指定 epoch 跑四项下游验证。
+
 
 代码内部额外记录 `val_loss`，用于 Lightning checkpoint 文件名和 monitor。
 

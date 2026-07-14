@@ -29,12 +29,20 @@ Evaluation of the learned representations on four downstream tasks:
 + (4) Kendall's tau
 
 ## Training
-We provide training scripts for BYOV on four datasets. Be sure to modify `--dataset_root` in `utils/config.py` to be your data path.
-Training logs and checkpoints will be saved to `./logs/exp_{dataset_name}/{args.output_dir}`.
+BYOV is trained independently on each of the four datasets. Paths are supplied to the
+training script and do not need to be edited in `utils/config.py`.
 
 ```shell
-bash scripts/run.sh dataset_name  # choose among {break_eggs, pour_milk, pour_liquid, tennis_forehand}
+bash scripts/run.sh \
+  --dataset break_eggs \
+  --dataset-root /path/to/AE2_data \
+  --output-root /path/to/experiments/byov \
+  --vision-encoder-path /path/to/transformers-clip-vit-b16
 ```
+
+Use `--smoke-test` before a full run. Periodic labelled downstream validation is enabled
+every 10 epochs by default; set `--ds-every 0` to run self-supervised training without
+loading labels. Run `bash scripts/run.sh --help` for all options.
 
 ## Citations
 ```

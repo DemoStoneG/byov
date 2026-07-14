@@ -261,13 +261,13 @@ def main():
 
         device = _resolve_device(args.device)
         logger.info('Using device: %s', device)
-        base_model = Embedder(args).to(device)
         encoder = byov_encoder(args).to(device)
-        base_model.eval()
         encoder.eval()
-        backbone_info = _validate_backbone_config(base_model, args)
         load_report = load_ckpt(encoder, args.ckpt)
         _write_json(os.path.join(args.config_dir, 'checkpoint_load.json'), load_report)
+        base_model = Embedder(args).to(device)
+        base_model.eval()
+        backbone_info = _validate_backbone_config(base_model, args)
 
         if needs_train_split:
             extraction['train'] = extract_embedding(

@@ -29,7 +29,7 @@ Options:
   --eval-tasks <ids>            Default: 1234
   --device <device>             Default: auto
   --num-workers <n>             Default: 0
-  --vision-encoder-path <path>  Optional CLIP model path
+  --vision-encoder-path <path>  Optional Transformers-format CLIP model path
   -h, --help                    Show this help
 EOF
 }

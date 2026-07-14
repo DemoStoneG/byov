@@ -1,8 +1,11 @@
 import json
+import glob
 import logging
 import os
 import platform
+import re
 import shutil
+import shlex
 import socket
 import subprocess
 import sys
@@ -46,6 +49,8 @@ def load_resume_args(cli_args):
         raise FileNotFoundError(f"Resume config not found: {args_path}")
     with open(args_path, "r") as f:
         saved_args = json.load(f)
+    # Backward-compatible defaults for runs created before these controls existed.
+    saved_args.setdefault("smoke_test", False)
     saved_args["resume"] = cli_args.resume
     saved_args["eval_only"] = cli_args.eval_only
     return Namespace(**saved_args)
@@ -70,7 +75,18 @@ def prepare_experiment(cli_args):
     args.checkpoints_dir = paths["checkpoints_dir"]
     args.metrics_dir = paths["metrics_dir"]
     args.artifacts_dir = paths["artifacts_dir"]
-    args.resume_ckpt = os.path.join(run_dir, "checkpoints", "last.ckpt") if is_resume else ""
+    args.resume_ckpt = ""
+    if is_resume:
+        candidates = glob.glob(os.path.join(run_dir, "checkpoints", "last-epoch=*.ckpt"))
+        if not candidates:
+            legacy_last = os.path.join(run_dir, "checkpoints", "last.ckpt")
+            if os.path.isfile(legacy_last):
+                candidates = [legacy_last]
+        if candidates:
+            def completed_epoch(path):
+                match = re.search(r"last-epoch=(\d+)", os.path.basename(path))
+                return int(match.group(1)) if match else -1
+            args.resume_ckpt = max(candidates, key=completed_epoch)
 
     return args, is_resume
 
@@ -117,7 +133,7 @@ def save_run_metadata(args, argv, is_resume):
 
     command_path = os.path.join(args.config_dir, "command.txt")
     with open(command_path, "w") as f:
-        f.write(" ".join(argv) + "\n")
+        f.write(shlex.join(argv) + "\n")
 
     git_path = os.path.join(args.config_dir, "git.txt")
     with open(git_path, "w") as f:
@@ -143,6 +159,17 @@ def save_run_metadata(args, argv, is_resume):
             f.write(f"pytorch_lightning: {pl.__version__}\n")
         except Exception as exc:
             f.write(f"pytorch_lightning: unavailable: {exc}\n")
+        try:
+            from importlib.metadata import PackageNotFoundError, version
+            for package in (
+                    "torchvision", "transformers", "timm", "numpy", "scipy",
+                    "scikit-learn", "h5py", "opencv-python"):
+                try:
+                    f.write(f"{package}: {version(package)}\n")
+                except PackageNotFoundError:
+                    f.write(f"{package}: not installed\n")
+        except Exception as exc:
+            f.write(f"package_versions: unavailable: {exc}\n")
 
 
 def maybe_create_outputs_symlink(output_root, link_path="outputs"):
@@ -154,33 +181,41 @@ def maybe_create_outputs_symlink(output_root, link_path="outputs"):
         pass
 
 
-def update_best_checkpoint(best_model_path, best_score, metrics_dir, checkpoints_dir):
+def update_best_checkpoint(
+        best_model_path,
+        best_score,
+        metrics_dir,
+        checkpoints_dir,
+        monitor="val/loss",
+        mode="min",
+        stable_filename=None,
+        metadata_filename="best.json"):
     if not best_model_path:
         return
-    stable_path = os.path.join(checkpoints_dir, "best.ckpt")
-    if os.path.abspath(best_model_path) != os.path.abspath(stable_path):
-        shutil.copy2(best_model_path, stable_path)
+    stable_path = None
+    if stable_filename:
+        stable_path = os.path.join(checkpoints_dir, stable_filename)
+        if os.path.abspath(best_model_path) != os.path.abspath(stable_path):
+            shutil.copy2(best_model_path, stable_path)
 
     epoch = None
     basename = os.path.basename(best_model_path)
-    if basename.startswith("best-epoch="):
-        epoch_part = basename.split("-", 2)[1]
-        if epoch_part.startswith("epoch="):
-            try:
-                epoch = int(epoch_part.split("=", 1)[1])
-            except ValueError:
-                epoch = None
+    epoch_match = re.search(r"epoch=(\d+)", basename)
+    if epoch_match:
+        epoch = int(epoch_match.group(1))
 
-    best_path = os.path.join(metrics_dir, "best.json")
+    best_path = os.path.join(metrics_dir, metadata_filename)
     with open(best_path, "w") as f:
         json.dump(
             {
-                "monitor": "val/loss",
-                "mode": "min",
+                "monitor": monitor,
+                "mode": mode,
                 "best_epoch": epoch,
                 "best_score": float(best_score) if best_score is not None else None,
                 "checkpoint": os.path.relpath(best_model_path, os.path.dirname(metrics_dir)),
-                "stable_checkpoint": "checkpoints/best.ckpt",
+                "stable_checkpoint": (
+                    f"checkpoints/{stable_filename}" if stable_filename else None
+                ),
             },
             f,
             indent=4,

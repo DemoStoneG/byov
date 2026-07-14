@@ -27,6 +27,23 @@ class Embedder(nn.Module):
         self.n_layers = args.n_layers
 
         if args.base_model_name == 'clip':
+            if os.path.isdir(args.vision_encoder_path):
+                transformers_weights = any(
+                    os.path.isfile(os.path.join(args.vision_encoder_path, filename))
+                    for filename in (
+                        'model.safetensors', 'pytorch_model.bin',
+                        'model.safetensors.index.json', 'pytorch_model.bin.index.json',
+                    )
+                )
+                if not transformers_weights:
+                    available_files = sorted(os.listdir(args.vision_encoder_path))[:20]
+                    raise ValueError(
+                        'The current BYOV loader uses transformers.CLIPVisionModel and requires '
+                        'a Hugging Face Transformers checkpoint containing model.safetensors or '
+                        f'pytorch_model.bin. No compatible weights were found in '
+                        f'{args.vision_encoder_path}. The directory appears to use another format '
+                        f'(for example OpenCLIP). Files: {available_files}'
+                    )
             self.base_model = CLIPVisionModel.from_pretrained(args.vision_encoder_path)
         else:
             raise NotImplementedError
@@ -39,10 +56,22 @@ class Embedder(nn.Module):
         for param in self.base_model.parameters():
             param.requires_grad = False
 
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if self.args.freeze_base:
+            # Lightning recursively switches submodules to train mode. Keep the
+            # frozen image encoder deterministic even if a checkpoint has dropout.
+            self.base_model.eval()
+        return self
+
     def token_selection(self, x):
         bs, ts, n, d = x.shape
-        topk = round(self.args.num_tokens * self.args.topk_ratio)
-        x_select = torch.zeros((bs, ts, topk, d), device=x.device)
+        if ts < 2:
+            raise ValueError('STM token selection requires at least two frames')
+        topk = round(n * self.args.topk_ratio)
+        if topk < 1 or topk > n:
+            raise ValueError(f'Invalid STM top-k {topk} for {n} patch tokens')
+        x_select = torch.zeros((bs, ts, topk, d), device=x.device, dtype=x.dtype)
         
         for b in range(bs):
             differences = (x[b, :-1] - x[b, 1:]).abs_() # (bs, ts, n-1, d)
@@ -59,14 +88,39 @@ class Embedder(nn.Module):
         # x: (bs, ts=32, 3, 224/168, 224/168)
         bs, ts, c, h, w = x.size()
         x = x.reshape(-1, c, h, w)
-        x = self.base_model(x).last_hidden_state  # (bs*ts, 3, 224, 224) -> (bs*ts, 50, 768) or (bs*ts, 196, 768)
-        if 'clip' in self.args.base_model_name:
-            x = x[:, 1:, :] # Take tokens without [cls] token   (bs*ts, 49, 768) for CLIP ViT-B/32
+        x = self.base_model(x).last_hidden_state
+        x = x[:, 1:, :]
         _, n, d = x.shape
         x = x.reshape(bs, ts, n, d)
-        x, topk_idx = self.token_selection(x)
-        x = x.mean(dim=2)
-        return x
+        x, _topk_idx = self.token_selection(x)
+        return x.mean(dim=2)
+
+
+def validate_backbone_config(embedder, args):
+    config = embedder.base_model.config
+    hidden_size = int(config.hidden_size)
+    image_size = int(config.image_size)
+    patch_size = int(config.patch_size)
+    num_tokens = (image_size // patch_size) ** 2
+    errors = []
+    if hidden_size != args.hidden_dim:
+        errors.append(f'hidden_dim={args.hidden_dim}, backbone hidden_size={hidden_size}')
+    if num_tokens != args.num_tokens:
+        errors.append(f'num_tokens={args.num_tokens}, backbone patch tokens={num_tokens}')
+    if args.input_size != image_size:
+        errors.append(f'input_size={args.input_size}, backbone image_size={image_size}')
+    if errors:
+        raise ValueError('Backbone/BYOV configuration mismatch: ' + '; '.join(errors))
+    return {
+        'model_type': getattr(config, 'model_type', type(config).__name__),
+        'name_or_path': getattr(config, '_name_or_path', ''),
+        'image_size': image_size,
+        'patch_size': patch_size,
+        'num_tokens': num_tokens,
+        'hidden_size': hidden_size,
+        'stm_topk': round(num_tokens * args.topk_ratio),
+        'byov_embedding_size': int(args.embedding_size),
+    }
 
 
 class byov_encoder(nn.Module):
@@ -250,13 +304,13 @@ class byov_decoder(nn.Module):
         x1_pred = torch.cat([x1_r2, x2], dim=1)
         x2_pred = torch.cat([x1, x2_r2], dim=1)
         for blk in self.decoder:
-            x1_r1 = blk(x1_r1, mask=True)
-            x1_pred = blk(x1_pred, mask=False)
+            x1_r1 = blk(x1_r1, mask=True) #MSM
+            x1_pred = blk(x1_pred, mask=False) #MCM
             x2_r1 = blk(x2_r1, mask=True)
             x2_pred = blk(x2_pred, mask=False)
 
         x1_r1 = self.decoder_pred(x1_r1)
-        x2_r1 = self.decoder_pred(x2_r2)
+        x2_r1 = self.decoder_pred(x2_r1)
         x1_pred = self.decoder_pred(x1_pred)
         x2_pred = self.decoder_pred(x2_pred)
         x_pred = torch.cat([x1_r1, x2_r1], dim=1)

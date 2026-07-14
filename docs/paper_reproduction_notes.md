@@ -284,7 +284,7 @@ run_dir/
 - 帧采样的实际索引、随机种子、每段视频帧数；至少在 debug run 中保存。
 - `num_tokens`、STM/MSM/MCM ratio、实际 `topk` 和实际保留帧数（整数取整规则）。
 - best checkpoint 的选择依据。训练 loss 最低不保证四个下游指标最佳，建议同时保存 `best-val_loss` 和每个下游主指标的 best epoch。
-- 三个独立 loss：`loss/msm_ego`、`loss/msm_exo`、`loss/mcm_ego`、`loss/mcm_exo` 或至少 `loss/msm`、`loss/mcm`、`loss/total`。当前代码只记录 total loss，不足以诊断某一分支失效。
+- 三个独立 loss：当前复现分支已分别记录 `train/val loss_msm`、`loss_mcm_view1`、`loss_mcm_view2` 以及 total loss，用于诊断某一预测分支是否失效。
 
 ## 9. 当前仓库与论文对照时发现的高风险点
 
@@ -293,8 +293,8 @@ run_dir/
 1. `utils/config.py` 中 `topk_ratio`、`mask_ratio` 和 `dp_rate` 的类型问题已经在当前复现分支修正为 `float`；正式运行仍应从 `config/args.json` 核对其实际值为 0.3、0.4 和 0.1。
 2. 论文要求冻结 CLIP；当前代码只有显式传 `--freeze_base` 才设置 `requires_grad=False`，虽然训练步骤对输出调用 `.detach()`，仍建议显式冻结并记录。
 3. `Embedder.token_selection()` 的 `topk_idx` 只返回最后一个 batch/时间位置的索引，当前下游未使用，但如果要可视化 STM，不能把它当成所有帧的索引。
-4. `byov_decoder.forward()` 中 `x2_r1` 的预测代码写成 `decoder_pred(x2_r2)`，疑似把 MSM 的 exo 小掩码分支错误替换成 MCM 大掩码分支；需要形状测试和语义核对。
-5. 当前训练 dataset 的 `merge_all=True` 将 ego/exo 路径合并为一个集合，再分别随机抽两段视频。因此一个样本未必是一 ego 一 exo，也可能 ego-ego 或 exo-exo。论文表述是 unpaired ego-exo 视频，是否允许同视角组合需核对作者意图。
+4. `byov_decoder.forward()` 原发布代码把 `x2_r1` 的预测写成了 `decoder_pred(x2_r2)`；当前复现分支已修正为 `decoder_pred(x2_r1)`，使第二个 MSM 分支使用其自身的小掩码表示。正式实验必须记录这一修正。
+5. 当前发布代码使用 `merge_all=True`，将 ego/exo 路径合并为一个集合，再独立随机抽两段视频。因此训练明确允许 ego-ego、exo-exo 和 ego-exo 组合；代码复现应保留该行为，不应擅自改为强制一 ego 一 exo。这里的 unpaired 表示不依赖视频或帧级对应关系。
 6. 训练采样在视频帧数不足 `num_frames` 时生成 `arange(0,num_frames)` 再 clamp，会重复最后一帧；必须记录短视频行为。
 7. 论文公式的 MSM/MCM 是视角两项之和；当前代码把 MSM 合成一项、两个方向 MCM 各一项，且只在 masked 位置算损失。复现报告要明确采用“论文公式口径”还是“发布代码口径”。
 8. 论文说两个 loss 分别 forward/backward；当前实现相加后共同 backward。两者可能影响优化轨迹。
@@ -321,7 +321,7 @@ run_dir/
 
 - optimizer 之外是否有 scheduler、warmup、gradient clipping、AMP。
 - batch size、epoch、数据增强、训练硬件与时长。
-- 随机视频配对是否强制一 ego 一 exo。
+- 发布代码不强制一 ego 一 exo，而是从合并视角池独立采样；复现实验应记录并保留该采样策略。
 - 相同动作类别内视频对的 epoch 长度和采样分布。
 - SVM 的 kernel/C/标准化、线性回归超参和 nearest-neighbor 距离是否对 latent 做 L2 normalize。
 - 使用哪个 epoch/checkpoint 生成论文表格。

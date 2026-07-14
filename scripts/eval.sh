@@ -26,7 +26,7 @@ Required:
 Input mode (choose by providing or omitting --embedding-dir):
   --embedding-dir <path>        Use precomputed train/val or train/test NPY files
   --embedding-file-split <name> NPY prefix: val or test; defaults to --eval-mode
-  --vision-encoder-path <path>  CLIP path used when extracting embeddings
+  --vision-encoder-path <path>  Transformers-format CLIP directory used for extraction
 
 Evaluation options:
   --run-name <name>             Default: official_probe_eval
