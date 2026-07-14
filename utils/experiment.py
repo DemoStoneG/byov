@@ -75,8 +75,8 @@ def prepare_experiment(cli_args):
     return args, is_resume
 
 
-def setup_logging(logs_dir):
-    log_path = os.path.join(logs_dir, "train.log")
+def setup_logging(logs_dir, filename="train.log"):
+    log_path = os.path.join(logs_dir, filename)
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     logger.handlers.clear()

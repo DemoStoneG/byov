@@ -69,9 +69,9 @@ def retrieval_ap_at_k(video_len_list, video_paths, embeddings, labels, k_list, c
         return (ap / num_queries).squeeze()
 
 
-def frame_retrieval(save_path, video_len_list, video_paths):
-    val_embs = np.load(f'{save_path}/val_embeds.npy')
-    val_labels = np.load(f'{save_path}/val_label.npy')
+def frame_retrieval(save_path, video_len_list, video_paths, eval_mode='val'):
+    val_embs = np.load(f'{save_path}/{eval_mode}_embeds.npy')
+    val_labels = np.load(f'{save_path}/{eval_mode}_label.npy')
     regular = retrieval_ap_at_k(video_len_list, video_paths, val_embs, val_labels, [10], cross_view=False)
     ego2exo, exo2ego = retrieval_ap_at_k(video_len_list, video_paths, val_embs, val_labels, [10], cross_view=True)
     return regular, ego2exo, exo2ego

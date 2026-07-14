@@ -1,0 +1,18 @@
+bash scripts/eval.sh \
+  --dataset break_eggs \
+  --checkpoint /root/autodl-tmp/datasets/AE2/AE2_ckpts/break_eggs.ckpt \
+  --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
+  --output-root /root/autodl-tmp/experiments/byov \
+  --run-name official_precomputed_eval \
+  --eval-mode test \
+  --embedding-file-split val \
+  --embedding-dir /root/autodl-tmp/datasets/AE2/AE2_ckpts/break_eggs_eval
+
+  bash scripts/eval_all.sh \
+  --checkpoint-root /root/autodl-tmp/datasets/AE2/AE2_ckpts \
+  --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
+  --output-root /root/autodl-tmp/experiments/byov_comparisons \
+  --backbone-label clip_vit_b16 \
+  --backbone base \
+  --eval-mode test \
+  --embedding-file-split val

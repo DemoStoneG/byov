@@ -172,3 +172,154 @@ lightning_logs/
 - 真实训练仍需要可用的 PyTorch Lightning、GPU、backbone 权重和 AE2 数据集。
 - `--dry_run config` 只能检查配置与输出目录，不能证明模型 forward、dataset 或训练 loop 正常。
 
+## 8. 官方 Backbone + BYOV Probe 直接测试
+
+默认运行论文 Table 1 的四项评估。整个过程中 backbone 和 BYOV probe/encoder 都保持冻结；任务 1 会在 train embedding 上拟合 SVM，任务 3 会拟合线性回归器，这是论文下游评估协议的一部分：
+
+```bash
+bash scripts/eval.sh \
+  --dataset break_eggs \
+  --checkpoint /path/to/official_probe.ckpt \
+  --dataset-root /path/to/AE2_data \
+  --output-root /path/to/experiments/byov \
+  --run-name official_probe_test
+```
+
+默认按论文 Table 1 的 CLIP ViT-B/16 + 256 维 BYOV probe 执行。CLIP ViT-L/14 + 512 维 probe 使用：
+
+```bash
+bash scripts/eval.sh \
+  --dataset break_eggs \
+  --checkpoint /path/to/large_probe.ckpt \
+  --dataset-root /path/to/AE2_data \
+  --output-root /path/to/experiments/byov \
+  --run-name official_large_test \
+  --backbone large \
+  --vision-encoder-path /path/to/openai-clip-vit-large-patch14
+```
+
+`eval.sh` 命令行负责本次运行会变化的参数：
+
+```text
+--dataset
+--checkpoint
+--dataset-root
+--output-root
+--run-name
+--embedding-dir
+--embedding-file-split
+--eval-mode
+--eval-tasks
+--backbone
+--vision-encoder-path
+--device
+--num-workers
+```
+
+代码/脚本内部固定管理与论文配置绑定的参数：Base/Large 对应的 hidden dimension、patch token 数、probe dimension，Tennis Forehand 的 20 帧与其他数据集的 32 帧，CLIP 冻结，以及默认的 STM/MSM/MCM ratio。底层 Python 参数仍完整保存在 `config/args.json`，正常评估不建议绕过 `eval.sh` 单独修改这些绑定项。
+
+官方发布的 `*_eval` 目录如果包含 `train_embeds.npy`、`train_label.npy`、`val_embeds.npy`、`val_label.npy`，可跳过 backbone forward，直接运行四项评估：
+
+```bash
+bash scripts/eval.sh \
+  --dataset break_eggs \
+  --checkpoint /root/autodl-tmp/datasets/AE2/AE2_ckpts/break_eggs.ckpt \
+  --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
+  --output-root /root/autodl-tmp/experiments/byov \
+  --run-name official_precomputed_eval \
+  --eval-mode test \
+  --embedding-file-split val \
+  --embedding-dir /root/autodl-tmp/datasets/AE2/AE2_ckpts/break_eggs_eval
+```
+
+官方原始评估代码可能把 test split 固定保存为 `val_embeds.npy`/`val_label.npy`，因此示例将数据 split 设为 `EVAL_MODE=test`，同时用 `EMBEDDING_FILE_SPLIT=val` 读取文件。正式运行前必须核对 NPY 行数是否等于 test split 的总帧数；若实际等于 val split，则两者都设为 `val`。
+
+即使使用预计算 embedding，仍需 `DATASET_ROOT` 指向完整 AE2 数据目录，因为评估器需要读取视频划分、每段视频长度及 ego/exo 身份。此模式不会加载 checkpoint 做 forward；checkpoint 路径只作为实验来源记录。
+
+每次评估创建独立 run，保存：
+
+```text
+<run_dir>/
+  config/
+    args.json
+    command.txt
+    git.txt
+    env.txt
+    evaluation_plan.json
+    checkpoint_load.json
+  logs/eval.log
+  metrics/test.json
+  artifacts/embeddings/
+    test_embeds.npy
+    test_label.npy
+```
+
+任务 2/4 不加载 train split。只有显式运行任务 1/3 时才额外生成 `train_embeds.npy` 和 `train_label.npy`，并拟合对应的 SVM/线性回归器。
+
+如果要求连下游 SVM/线性回归也完全不拟合，只运行 training-free 的 frame retrieval 和 Kendall's tau：
+
+```bash
+bash scripts/eval.sh \
+  --dataset break_eggs \
+  --checkpoint /path/to/official_probe.ckpt \
+  --dataset-root /path/to/AE2_data \
+  --output-root /path/to/experiments/byov \
+  --run-name retrieval_tau_only \
+  --eval-tasks 24 \
+  --no-downstream-fit
+```
+
+`--no_downstream_fit` 会拒绝任务 1 和任务 3。配置和输出目录可先做无依赖检查：
+
+```bash
+python evaluation/evaluate_features.py \
+  --dry_run config \
+  --output_root /tmp/byov_eval_check \
+  --dataset break_eggs \
+  --run_name direct_test \
+  --eval_mode test \
+  --eval_task 24 \
+  --no_downstream_fit
+```
+
+## 9. 四数据集与多 Backbone 对比目录
+
+切换数据集时只需要改变：
+
+```text
+--dataset
+--checkpoint
+--embedding-dir
+```
+
+数据目录读取规则、Tennis Forehand 的 20 帧以及其他数据集的 32 帧由代码自动选择。四个数据集可以用统一入口批量运行：
+
+```bash
+bash scripts/eval_all.sh \
+  --checkpoint-root /root/autodl-tmp/datasets/AE2/AE2_ckpts \
+  --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
+  --output-root /root/autodl-tmp/experiments/byov_comparisons \
+  --backbone-label clip_vit_b16 \
+  --backbone base \
+  --eval-mode test \
+  --embedding-file-split val
+```
+
+输出结构：
+
+```text
+byov_comparisons/
+  clip_vit_b16/
+    break_eggs/<run_dir>/...
+    pour_milk/<run_dir>/...
+    pour_liquid/<run_dir>/...
+    tennis_forehand/<run_dir>/...
+    summary/
+      break_eggs_test.json
+      pour_milk_test.json
+      pour_liquid_test.json
+      tennis_forehand_test.json
+      all_results.json
+```
+
+实现其他 backbone 后，只需使用新的 `--backbone-label`，例如 `clip_vit_l14` 或 `resnet50`，使其成为 `byov_comparisons` 下的兄弟目录。`summary/all_results.json` 汇总该 backbone 的四数据集结果，便于生成对比表。

@@ -20,8 +20,8 @@ def fit_svm_model(train_embs, train_labels, val_embs, val_labels, cal_f1_score=F
         return svm_model, train_acc, val_acc
 
 
-def classification(save_path, train_video_ego_id, val_video_ego_id):
-    train_embs, train_labels, val_embs, val_labels = load_embeds_and_labels(save_path)
+def classification(save_path, train_video_ego_id, val_video_ego_id, eval_mode='val'):
+    train_embs, train_labels, val_embs, val_labels = load_embeds_and_labels(save_path, eval_mode)
     regular_f1 = fit_svm_model(train_embs, train_labels, val_embs, val_labels, cal_f1_score=True)
 
     train_ego_idx = np.array(train_video_ego_id) == 1

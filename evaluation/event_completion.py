@@ -38,11 +38,11 @@ class VectorRegression(sklearn.base.BaseEstimator):
         return np.mean(res)
 
 
-def load_embeds_and_labels(save_path):
+def load_embeds_and_labels(save_path, eval_mode='val'):
     train_embs = np.load(f'{save_path}/train_embeds.npy')
     train_labels = np.load(f'{save_path}/train_label.npy')
-    val_embs = np.load(f'{save_path}/val_embeds.npy')
-    val_labels = np.load(f'{save_path}/val_label.npy')
+    val_embs = np.load(f'{save_path}/{eval_mode}_embeds.npy')
+    val_labels = np.load(f'{save_path}/{eval_mode}_label.npy')
     return train_embs, train_labels, val_embs, val_labels
 
 
@@ -91,8 +91,8 @@ def get_targets_from_labels(all_class_labels, num_classes):
     return all_regression_labels
 
 
-def compute_progression_value(save_path, train_video_len_list, val_video_len_list, modify_embeddings=False):
-    train_embs, train_labels, val_embs, val_labels = load_embeds_and_labels(save_path)
+def compute_progression_value(save_path, train_video_len_list, val_video_len_list, modify_embeddings=False, eval_mode='val'):
+    train_embs, train_labels, val_embs, val_labels = load_embeds_and_labels(save_path, eval_mode)
     train_embs, train_labels = construct_embs_labels_list(train_embs, train_labels, train_video_len_list, modify_embeddings)
     val_embs, val_labels = construct_embs_labels_list(val_embs, val_labels, val_video_len_list, modify_embeddings)
 
@@ -101,6 +101,5 @@ def compute_progression_value(save_path, train_video_len_list, val_video_len_lis
     train_score = lin_model.score(train_embs, train_labels)
     val_score = lin_model.score(val_embs, val_labels)
     return train_score, val_score
-
 
 

@@ -8,7 +8,11 @@ import random
 from pytorch_lightning.core import LightningModule
 from dataset.video_align_dataset import VideoAlignmentTrainDataset
 from models.embedder import Embedder, byov_encoder, byov_decoder
-from evaluation.evaluate_features import prepare_data_loader, extract_embedding, classification, frame_retrieval, compute_progression_value, kendalls_tau
+from evaluation.evaluate_features import prepare_data_loader, extract_embedding
+from evaluation.classification import classification
+from evaluation.frame_retrieval import frame_retrieval
+from evaluation.event_completion import compute_progression_value
+from evaluation.kendalls_tau import kendalls_tau
 from utils.pos_embed import interpolate_pos_embed
 
 logger = logging.getLogger(__name__)
