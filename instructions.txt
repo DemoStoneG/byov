@@ -17,6 +17,17 @@ bash scripts/run.sh \
   --run-name byov_clip_vit_b16 \
   --ds-every 10
 
+for DATASET in break_eggs pour_milk pour_liquid tennis_forehand; do
+  bash scripts/run.sh \
+    --dataset "$DATASET" \
+    --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
+    --output-root /root/autodl-tmp/experiments/byov_training \
+    --vision-encoder-path /root/autodl-tmp/ai_models/openai-clip-vit-base-patch16 \
+    --run-name byov_clip_vit_b16 \
+    --ds-every 10 \
+    --save-every 0
+done
+
 
 --eval
 bash scripts/eval.sh \
