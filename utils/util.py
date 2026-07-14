@@ -7,22 +7,10 @@ import torch
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from pytorch_lightning.callbacks import ModelCheckpoint
 
 import utils.logger as logging
 
 logger = logging.get_logger(__name__)
-
-
-class CustomModelCheckpoint(ModelCheckpoint):
-    def __init__(self, every_n_epochs, **kwargs):
-        super().__init__(**kwargs)
-        self.eval_every_n_epochs = every_n_epochs
-
-    def _should_skip_saving_checkpoint(self, trainer) -> bool:
-        if (trainer.current_epoch + 1) % self.eval_every_n_epochs != 0:
-            return True
-        return super()._should_skip_saving_checkpoint(trainer)
 
 
 def get_category_metadata(cfg, metadata=None):

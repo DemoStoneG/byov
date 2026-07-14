@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# libgomp requires a positive integer. Some container images export an empty
+# or otherwise invalid value, which produces a warning before Python starts.
+if ! [[ "${OMP_NUM_THREADS:-}" =~ ^[1-9][0-9]*$ ]]; then
+  export OMP_NUM_THREADS=1
+fi
+
 usage() {
   cat <<'EOF'
 Usage:
