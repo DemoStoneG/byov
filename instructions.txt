@@ -25,7 +25,6 @@ for DATASET in break_eggs pour_milk pour_liquid tennis_forehand; do
     --vision-encoder-path /root/autodl-tmp/ai_models/openai-clip-vit-base-patch16 \
     --run-name byov_clip_vit_b16 \
     --ds-every 10 \
-    --save-every 0
 done
 
 
