@@ -119,7 +119,6 @@ def build_trainer(args):
     trainer_options = {}
     if args.smoke_test:
         trainer_options.update(
-            max_epochs=1,
             limit_train_batches=1,
             limit_val_batches=1,
             num_sanity_val_steps=0,
