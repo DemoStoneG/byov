@@ -355,8 +355,10 @@ AE2_ckpts/
 
 ```text
 embedding 行数 == label 数量 == 对应 split 的视频总帧数
-embedding 维度 == 配置的 probe 维度（Base 256；Large 512）
+train 与 val/test embedding 的维度相同
 ```
+
+预计算模式会记录 NPY 的实际 embedding 维度，但不会仅凭 `--backbone base/large` 强制它必须是 256/512，因为此时并未加载 backbone。若实际维度为 128，则下游四项仍可计算，但这不符合论文 Table 1 的 BYOV ViT-B/16 256 维主配置；必须先确认该 NPY 是 BYOV 结果还是 AE2/其他基线资产。
 
 官方原始评估代码可能把 test split 固定保存成 `val_embeds.npy` 和 `val_label.npy`。因此需要区分：
 
@@ -412,6 +414,23 @@ bash scripts/eval_all.sh \
   --embedding-file-split val \
   --eval-tasks 1234
 ```
+
+上面的命令读取官方预计算 NPY，只适合在已经确认 NPY 来源和维度时复算下游指标。严格复现论文 Table 1 应重新执行 CLIP + BYOV encoder forward：
+
+```bash
+bash scripts/eval_all.sh \
+  --checkpoint-root /root/autodl-tmp/datasets/BYOV/BYOV_ckpts \
+  --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
+  --output-root /root/autodl-tmp/experiments/byov_comparisons \
+  --backbone-label byov_clip_vit_b16 \
+  --backbone base \
+  --vision-encoder-path /root/autodl-tmp/ai_models/openai-clip-vit-base-patch16 \
+  --eval-mode test \
+  --eval-tasks 1234 \
+  --extract-embedding
+```
+
+此模式忽略 `<checkpoint-root>/<dataset>_eval/*.npy`，从原始视频重新生成 embedding。每个 checkpoint 必须是 CLIP ViT-B/16 对应的 BYOV 256 维 encoder；仅有 128 维 AE2 checkpoint 不能复现 Table 1。
 
 输出目录：
 
@@ -521,7 +540,8 @@ Tennis Forehand: 20
     "num_frames": 32,
     "num_tokens": 196,
     "backbone_hidden_dim": 768,
-    "probe_embedding_size": 256,
+    "configured_probe_embedding_size": 256,
+    "evaluated_embedding_size": 256,
     "token_selection_ratio": 0.3,
     "msm_mask_ratio": 0.4,
     "mcm_mask_ratio": 0.8

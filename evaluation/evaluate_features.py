@@ -155,12 +155,11 @@ def _validate_eval_plan(args):
         raise ValueError('--embedding_file_split is only valid with --embedding_dir')
 
 
-def _validate_precomputed_files(
-    embeddings_dir, file_split, dataset_eval, expected_embedding_dim, dataset_train=None
-):
+def _validate_precomputed_files(embeddings_dir, file_split, dataset_eval, dataset_train=None):
     import numpy as np
 
     result = {}
+    observed_embedding_dim = None
     splits = [(file_split, dataset_eval)]
     if dataset_train is not None:
         splits.append(('train', dataset_train))
@@ -172,11 +171,13 @@ def _validate_precomputed_files(
         expected_frames = int(sum(dataset.video_len_list))
         if embeds.ndim != 2:
             raise ValueError(f'{embeds_path} must be 2-D, got shape {embeds.shape}')
-        if embeds.shape[1] != expected_embedding_dim:
+        if observed_embedding_dim is None:
+            observed_embedding_dim = int(embeds.shape[1])
+        elif embeds.shape[1] != observed_embedding_dim:
             raise ValueError(
-                f'Precomputed embedding dimension mismatch: {embeds_path} has '
-                f'{embeds.shape[1]} dimensions, configured probe expects '
-                f'{expected_embedding_dim}. Check --backbone (base or large).'
+                f'Precomputed embedding dimensions differ across splits: {embeds_path} has '
+                f'{embeds.shape[1]} dimensions, while another split has '
+                f'{observed_embedding_dim}.'
             )
         if embeds.shape[0] != expected_frames or labels.reshape(-1).shape[0] != expected_frames:
             raise ValueError(
@@ -190,6 +191,7 @@ def _validate_precomputed_files(
             'label_shape': list(labels.shape),
             'expected_frames': expected_frames,
         }
+    result['observed_embedding_dim'] = observed_embedding_dim
     return result
 
 
@@ -294,10 +296,14 @@ def main():
             embeddings_dir,
             embedding_file_split,
             dataset_eval,
-            args.embedding_size,
             dataset_train if needs_train_split else None,
         )
 
+    observed_embedding_dim = (
+        extraction.get('precomputed_validation', {}).get('observed_embedding_dim')
+        if not args.extract_embedding
+        else args.embedding_size
+    )
     metrics = {
         'dataset': args.dataset,
         'split': args.eval_mode,
@@ -317,7 +323,8 @@ def main():
             'num_frames': int(args.num_frames),
             'num_tokens': int(args.num_tokens),
             'backbone_hidden_dim': int(args.hidden_dim),
-            'probe_embedding_size': int(args.embedding_size),
+            'configured_probe_embedding_size': int(args.embedding_size),
+            'evaluated_embedding_size': int(observed_embedding_dim),
             'token_selection_ratio': float(args.topk_ratio),
             'msm_mask_ratio': float(args.mask_ratio),
             'mcm_mask_ratio': float(args.mask_ratio * 2),

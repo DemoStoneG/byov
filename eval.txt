@@ -9,10 +9,12 @@ bash scripts/eval.sh \
   --embedding-dir /root/autodl-tmp/datasets/AE2/AE2_ckpts/break_eggs_eval
 
   bash scripts/eval_all.sh \
-  --checkpoint-root /root/autodl-tmp/datasets/AE2/AE2_ckpts \
+  --checkpoint-root /root/autodl-tmp/datasets/BYOV/BYOV_ckpts \
   --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
   --output-root /root/autodl-tmp/experiments/byov_comparisons \
-  --backbone-label clip_vit_b16 \
+  --backbone-label byov_clip_vit_b16 \
   --backbone base \
+  --vision-encoder-path /root/autodl-tmp/ai_models/openai-clip-vit-base-patch16 \
   --eval-mode test \
-  --embedding-file-split val
+  --eval-tasks 1234 \
+  --extract-embedding

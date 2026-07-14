@@ -305,6 +305,22 @@ bash scripts/eval_all.sh \
   --embedding-file-split val
 ```
 
+严格复现论文而不是复算现成 NPY 时，使用正确的 BYOV checkpoint 和 CLIP ViT-B/16 重新提取 embedding：
+
+```bash
+bash scripts/eval_all.sh \
+  --checkpoint-root /root/autodl-tmp/datasets/BYOV/BYOV_ckpts \
+  --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
+  --output-root /root/autodl-tmp/experiments/byov_comparisons \
+  --backbone-label byov_clip_vit_b16 \
+  --backbone base \
+  --vision-encoder-path /root/autodl-tmp/ai_models/openai-clip-vit-base-patch16 \
+  --eval-mode test \
+  --extract-embedding
+```
+
+`--extract-embedding` 会忽略 `<checkpoint-root>/<dataset>_eval`，从原始视频执行 CLIP + BYOV encoder forward。Table 1 的 Base checkpoint 应对应 768 维 CLIP 输入和 256 维 BYOV latent。
+
 输出结构：
 
 ```text

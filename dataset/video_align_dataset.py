@@ -199,7 +199,10 @@ class VideoAlignmentDownstreamDataset(VideoAlignmentDataset):
             self.video_name_list.append(video)
             self.frame_id_list.append(temp_id_list)
             self.label_list.append(temp_label_list)
-        print(f'Finish constructing frames path list, total len {len(self.frame_path_list)}')
+        print(
+            f'Finish constructing downstream metadata: '
+            f'{len(self.video_name_list)} videos, {sum(self.video_len_list)} frames'
+        )
 
     def _load_label(self):
         file_path = os.path.join(self.data_path, 'label.pickle')

@@ -22,6 +22,7 @@ Expected checkpoint-root layout:
   <root>/tennis_forehand_eval/{train,val}_*.npy
 
 Options:
+  --extract-embedding           Ignore *_eval NPY files and run CLIP + BYOV checkpoint
   --backbone <base|large>       Default: base
   --eval-mode <val|test>        Default: test
   --embedding-file-split <name> Default: val
@@ -44,6 +45,7 @@ EVAL_TASKS="1234"
 DEVICE="auto"
 NUM_WORKERS="0"
 VISION_ENCODER_PATH=""
+EXTRACT_EMBEDDING="0"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -58,6 +60,7 @@ while [ "$#" -gt 0 ]; do
     --device) DEVICE="$2"; shift 2 ;;
     --num-workers) NUM_WORKERS="$2"; shift 2 ;;
     --vision-encoder-path) VISION_ENCODER_PATH="$2"; shift 2 ;;
+    --extract-embedding) EXTRACT_EMBEDDING="1"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1"; usage; exit 1 ;;
   esac
@@ -87,12 +90,16 @@ if [ -n "$VISION_ENCODER_PATH" ]; then
 fi
 
 for dataset in break_eggs pour_milk pour_liquid tennis_forehand; do
-  bash scripts/eval.sh \
-    --dataset "$dataset" \
-    --checkpoint "$CHECKPOINT_ROOT/$dataset.ckpt" \
-    --embedding-dir "$CHECKPOINT_ROOT/${dataset}_eval" \
-    --run-name official_precomputed_eval \
+  DATASET_ARGS=(
+    --dataset "$dataset"
+    --checkpoint "$CHECKPOINT_ROOT/$dataset.ckpt"
+    --run-name official_eval
     "${COMMON_ARGS[@]}"
+  )
+  if [ "$EXTRACT_EMBEDDING" = "0" ]; then
+    DATASET_ARGS+=(--embedding-dir "$CHECKPOINT_ROOT/${dataset}_eval")
+  fi
+  bash scripts/eval.sh "${DATASET_ARGS[@]}"
 done
 
 echo "All four datasets completed."
