@@ -86,6 +86,12 @@ if ! [[ "${OMP_NUM_THREADS:-1}" =~ ^[1-9][0-9]*$ ]]; then
   export OMP_NUM_THREADS=1
 fi
 
+# Prefer the active Conda environment's C++ runtime. AutoDL images may otherwise
+# load /usr/lib/libstdc++.so.6, which can be too old for binary Python packages.
+if [ -n "${CONDA_PREFIX:-}" ] && [ -d "$CONDA_PREFIX/lib" ]; then
+  export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+
 cd "$PROJECT_ROOT"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"

@@ -15,48 +15,54 @@ from utils.experiment import (
 
 def build_trainer(args):
     from pytorch_lightning import Trainer
-    from pytorch_lightning.callbacks import Callback, ModelCheckpoint
+    from pytorch_lightning.callbacks import ModelCheckpoint
     from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
-    class BestCheckpointMetadata(Callback):
-        def __init__(self, checkpoint_callback, monitor="val/loss", mode="min",
-                     stable_filename=None, metadata_filename="best.json"):
-            self.checkpoint_callback = checkpoint_callback
-            self.monitor = monitor
-            self.mode = mode
-            self.stable_filename = stable_filename
+    class TrackedModelCheckpoint(ModelCheckpoint):
+        def __init__(self, metadata_monitor, metadata_filename, **kwargs):
+            super().__init__(**kwargs)
+            self.metadata_monitor = metadata_monitor
             self.metadata_filename = metadata_filename
 
         def on_validation_end(self, trainer, pl_module):
-            update_best_checkpoint(
-                self.checkpoint_callback.best_model_path,
-                self.checkpoint_callback.best_model_score,
-                pl_module.args.metrics_dir,
-                pl_module.args.checkpoints_dir,
-                monitor=self.monitor,
-                mode=self.mode,
-                stable_filename=self.stable_filename,
-                metadata_filename=self.metadata_filename,
-            )
+            super().on_validation_end(trainer, pl_module)
+            self._write_metadata(pl_module)
 
         def on_train_end(self, trainer, pl_module):
-            self.on_validation_end(trainer, pl_module)
+            super().on_train_end(trainer, pl_module)
+            self._write_metadata(pl_module)
+
+        def _write_metadata(self, pl_module):
+            update_best_checkpoint(
+                self.best_model_path,
+                self.best_model_score,
+                pl_module.args.metrics_dir,
+                pl_module.args.checkpoints_dir,
+                monitor=self.metadata_monitor,
+                mode=self.mode,
+                metadata_filename=self.metadata_filename,
+            )
 
     periodic_checkpoint = ModelCheckpoint(
         dirpath=args.checkpoints_dir,
         filename="epoch={completed_epochs:03.0f}",
         auto_insert_metric_name=False,
         save_top_k=-1,
-        save_last=False,
+        save_last=args.save_every == 1,
         every_n_epochs=args.save_every,
+        save_on_train_epoch_end=False,
     )
-    best_checkpoint = ModelCheckpoint(
+    periodic_checkpoint.CHECKPOINT_NAME_LAST = "last-epoch={completed_epochs:03.0f}"
+    best_checkpoint = TrackedModelCheckpoint(
+        metadata_monitor="val_loss",
+        metadata_filename="best.json",
         dirpath=args.checkpoints_dir,
         filename="best-val_loss-epoch={completed_epochs:03.0f}-val_loss={val_loss:.4f}",
         auto_insert_metric_name=False,
         monitor="val_loss",
         mode="min",
         save_top_k=1,
+        save_on_train_epoch_end=False,
     )
     tensorboard_logger = TensorBoardLogger(
         save_dir=args.run_dir,
@@ -76,13 +82,11 @@ def build_trainer(args):
         save_top_k=1,
         save_last=False,
         every_n_epochs=1,
+        save_on_train_epoch_end=False,
     )
-    callbacks = [
-        periodic_checkpoint,
-        latest_checkpoint,
-        best_checkpoint,
-        BestCheckpointMetadata(best_checkpoint),
-    ]
+    callbacks = [periodic_checkpoint, best_checkpoint]
+    if args.save_every > 1:
+        callbacks.append(latest_checkpoint)
 
     if args.ds_every_n_epoch > 0:
         downstream_monitors = {
@@ -94,7 +98,9 @@ def build_trainer(args):
         for task_id, (metric_name, monitor_name) in downstream_monitors.items():
             if task_id not in args.eval_task:
                 continue
-            checkpoint = ModelCheckpoint(
+            checkpoint = TrackedModelCheckpoint(
+                metadata_monitor=monitor_name,
+                metadata_filename=f'best_{metric_name}.json',
                 dirpath=args.checkpoints_dir,
                 filename=(
                     f'best-{metric_name}-epoch={{completed_epochs:03.0f}}'
@@ -105,16 +111,9 @@ def build_trainer(args):
                 mode='max',
                 save_top_k=1,
                 every_n_epochs=args.ds_every_n_epoch,
+                save_on_train_epoch_end=False,
             )
-            callbacks.extend([
-                checkpoint,
-                BestCheckpointMetadata(
-                    checkpoint,
-                    monitor=monitor_name,
-                    mode='max',
-                    metadata_filename=f'best_{metric_name}.json',
-                ),
-            ])
+            callbacks.append(checkpoint)
 
     trainer_options = {}
     if args.smoke_test:

@@ -2,7 +2,7 @@ __pycache__/
 *.py[cod]
 
 logs/
-outputs/
+/outputs
 lightning_logs/
 
 *.ckpt
