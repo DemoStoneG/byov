@@ -54,11 +54,16 @@ argparser.add_argument('--mask_ratio', type=float, default=0.4, help='token mask
 
 # Eval
 argparser.add_argument('--ckpt', type=str, default='', help='model ckpt')
+argparser.add_argument('--training_run', type=str, default='',
+                       help='Standardized training run whose checkpoint and model config are used')
+argparser.add_argument('--checkpoint_selection', type=str, default='val_loss',
+                       choices=['val_loss', 'classification', 'retrieval', 'progression', 'kendall', 'last'],
+                       help='Checkpoint selected from --training_run for embedding extraction')
 argparser.add_argument('--extract_embedding', action='store_true', help='extract embeddings')
 argparser.add_argument('--embedding_dir', type=str, default='',
                        help='Directory containing precomputed train/val or train/test .npy files')
 argparser.add_argument('--embedding_file_split', type=str, default='', choices=['', 'val', 'test'],
-                       help='Filename prefix for precomputed eval embeddings; useful when test data was saved as val_*.npy')
+                       help='Filename prefix for precomputed eval embeddings only; train_*.npy is always used by fitted tasks')
 argparser.add_argument('--eval_task', type=str, default='1234', help='downstream evaluation')
 argparser.add_argument('--eval_mode', type=str, default='test', choices=['val', 'test'],
                        help='Dataset split used for downstream evaluation')

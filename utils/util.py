@@ -1,5 +1,6 @@
 
 import os
+import tempfile
 
 import cv2
 import h5py
@@ -116,60 +117,92 @@ def get_video_resolution(video):
     return width, height
 
 
+def _validate_frames_h5py(h5_file_path, expected_frames=None):
+    """Return whether a frame cache is complete and safe to reuse."""
+    if not os.path.isfile(h5_file_path):
+        return False, 'file does not exist'
+    try:
+        with h5py.File(h5_file_path, 'r') as h5_file:
+            if 'images' not in h5_file:
+                return False, "dataset 'images' is missing"
+            images = h5_file['images']
+            if images.ndim != 4:
+                return False, f"dataset 'images' must be 4-D, got shape {images.shape}"
+            if images.shape[0] < 1:
+                return False, "dataset 'images' contains no frames"
+            if images.shape[1] < 1 or images.shape[2] < 1 or images.shape[3] != 3:
+                return False, f"dataset 'images' has invalid frame shape {images.shape[1:]}"
+            if expected_frames is not None and images.shape[0] != expected_frames:
+                return False, (
+                    f"dataset 'images' has {images.shape[0]} frames; "
+                    f'video metadata reports {expected_frames}'
+                )
+    except (OSError, KeyError, RuntimeError, ValueError) as exc:
+        return False, f'unreadable H5 cache: {exc}'
+    return True, None
+
+
 def _extract_frames_h5py(video_path, frames_path):
-    videocap = cv2.VideoCapture(video_path)
     video_name = video_path.replace('.mp4', '').split('/')[-1]
     view_name = video_path.replace('.mp4', '').split('/')[-2]
     frames_path = os.path.join(frames_path, view_name)
     os.makedirs(frames_path, exist_ok=True)
     h5_file_path = os.path.join(frames_path, f'{video_name}.h5')
-    if os.path.isfile(h5_file_path):
+    expected_frames = get_num_frames(video_path)
+    if expected_frames < 1:
+        raise RuntimeError(f'Video metadata reports no readable frames: {video_path}')
+    cache_valid, invalid_reason = _validate_frames_h5py(h5_file_path, expected_frames)
+    if cache_valid:
         return h5_file_path
-    h5_file = h5py.File(h5_file_path, "w")
-    frames = list()
-    # desired_shorter_side = 384
-    while videocap.isOpened():
-        success, frame = videocap.read()
-        if not success:
-            break
-        else:
-            # original_height, original_width, _ = frame.shape
-            # if original_height < original_width:
-            #     # Height is the shorter side
-            #     new_height = desired_shorter_side
-            #     new_width = np.round(
-            #         original_width*(desired_shorter_side/original_height)
-            #     ).astype(np.int64)
-            # elif original_height > original_width:
-            #     # Width is the shorter side
-            #     new_width = desired_shorter_side
-            #     new_height = np.round(
-            #         original_height*(desired_shorter_side/original_width)
-            #     ).astype(np.int64)
-            # else:
-            #     # Both are the same
-            #     new_height = desired_shorter_side
-            #     new_width = desired_shorter_side
-            # assert np.isclose(
-            #     new_width/new_height,
-            #     original_width/original_height,
-            #     0.01
-            # ), f'{new_width/new_height}; {original_width/original_height}'
-            frame = cv2.resize(
-                frame,
-                (256, 256),
-                interpolation=cv2.INTER_AREA
-            )
+    if os.path.isfile(h5_file_path):
+        logger.warning('Invalid H5 cache will be rebuilt: %s (%s)', h5_file_path, invalid_reason)
+
+    videocap = cv2.VideoCapture(video_path)
+    if not videocap.isOpened():
+        videocap.release()
+        raise RuntimeError(f'Unable to open video while building H5 cache: {video_path}')
+    frames = []
+    try:
+        while videocap.isOpened():
+            success, frame = videocap.read()
+            if not success:
+                break
+            frame = cv2.resize(frame, (256, 256), interpolation=cv2.INTER_AREA)
             frames.append(frame)
-    videocap.release()
-    frames_npy = np.array(frames)
-    dataset = h5_file.create_dataset(
-        "images",
-        np.shape(frames_npy),
-        h5py.h5t.STD_U8BE,
-        data=frames_npy
+    finally:
+        videocap.release()
+
+    if not frames:
+        raise RuntimeError(f'No frames decoded while building H5 cache: {video_path}')
+    if expected_frames > 0 and len(frames) != expected_frames:
+        raise RuntimeError(
+            f'Incomplete video decode for {video_path}: decoded {len(frames)} frames, '
+            f'but metadata reports {expected_frames}'
+        )
+
+    frames_npy = np.asarray(frames, dtype=np.uint8)
+    temp_fd, temp_path = tempfile.mkstemp(
+        prefix=f'.{video_name}.', suffix='.h5.tmp', dir=frames_path
     )
-    h5_file.close()
+    os.close(temp_fd)
+    try:
+        with h5py.File(temp_path, 'w') as h5_file:
+            h5_file.create_dataset('images', data=frames_npy, dtype=np.uint8)
+            h5_file.flush()
+        temp_valid, temp_reason = _validate_frames_h5py(temp_path, len(frames))
+        if not temp_valid:
+            raise RuntimeError(f'Generated H5 cache failed validation: {temp_reason}')
+
+        # Another worker may have completed the same cache while this worker decoded.
+        # Reuse that valid file; otherwise atomically replace the missing/invalid cache.
+        final_valid, _final_reason = _validate_frames_h5py(h5_file_path, expected_frames)
+        if not final_valid:
+            os.replace(temp_path, h5_file_path)
+            temp_path = None
+    finally:
+        if temp_path is not None and os.path.exists(temp_path):
+            os.remove(temp_path)
+
     return h5_file_path
 
 

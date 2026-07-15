@@ -432,6 +432,48 @@ bash scripts/eval_all.sh \
 
 此模式忽略 `<checkpoint-root>/<dataset>_eval/*.npy`，从原始视频重新生成 embedding。每个 checkpoint 必须是 CLIP ViT-B/16 对应的 BYOV 256 维 encoder；仅有 128 维 AE2 checkpoint 不能复现 Table 1。
 
+对于由本项目 `scripts/run.sh` 产生的训练结果，推荐直接传入训练输出根目录。评测器会为每个数据集找到最新且包含指定 best 记录的训练 run，读取该 run 的 `config/args.json`，加载选中的 checkpoint，重新提取 `train/test` embedding，再运行四项测试：
+
+```bash
+bash scripts/eval_all.sh \
+  --training-root /root/autodl-tmp/experiments/byov_training \
+  --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
+  --output-root /root/autodl-tmp/experiments/byov_comparisons \
+  --backbone-label byov_clip_vit_b16 \
+  --checkpoint-selection val_loss \
+  --run-name-filter byov_clip_vit_b16 \
+  --vision-encoder-path /root/autodl-tmp/ai_models/openai-clip-vit-base-patch16 \
+  --eval-mode test \
+  --eval-tasks 1234
+```
+
+这里不需要传 `--extract-embedding`、`--embedding-dir` 或 `--embedding-file-split`：`--training-root` 模式强制从 checkpoint 重新提取。默认按最小验证重建损失 `val_loss` 选择单个 checkpoint，并用同一个 checkpoint 报告四项测试，避免分别挑选四个下游任务的最优模型。也可以显式选择 `classification`、`retrieval`、`progression`、`kendall` 或 `last`，但不同 backbone 对比时必须统一选择规则。
+
+`--embedding-file-split` 只适用于预计算 NPY 模式，并且只控制评估文件读取 `val_embeds.npy` 还是 `test_embeds.npy`。任务 1（SVM classification）和任务 3（linear progression）只要启用，就始终另外读取 `train_embeds.npy`/`train_label.npy` 用于拟合；它们不会因为 `--embedding-file-split val` 而丢失训练数据。正常命名时省略该参数，让它跟随 `--eval-mode`；只有官方文件把 test 内容命名成 `val_*.npy` 时才显式传 `--embedding-file-split val`。
+
+单个数据集评测需要指定该数据集的具体训练 run，而不是四数据集训练根目录。例如：
+
+```bash
+bash scripts/eval.sh \
+  --dataset break_eggs \
+  --training-run /root/autodl-tmp/experiments/byov_training/break_eggs/20260715_HHMMSS_byov_clip_vit_b16_clip_bs4_lr1e-5_seed42 \
+  --checkpoint-selection val_loss \
+  --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
+  --output-root /root/autodl-tmp/experiments/byov_comparisons/byov_clip_vit_b16 \
+  --vision-encoder-path /root/autodl-tmp/ai_models/openai-clip-vit-base-patch16 \
+  --run-name trained_checkpoint_test \
+  --eval-mode test \
+  --eval-tasks 1234 \
+  --device auto \
+  --num-workers 0
+```
+
+该模式同样会从训练配置恢复模型结构，并重新生成 `train/test` embedding。`--vision-encoder-path` 可以省略以复用训练时记录的路径；如果模型目录移动过，则显式传入新路径。
+
+视频帧 H5 缓存复用前会检查 `images` 数据集是否存在、是否为非空四维 RGB/BGR 帧数组，以及缓存帧数是否与视频元数据一致。无效缓存会被重新解码；新缓存先写入同目录唯一临时文件，关闭并复检通过后再用原子替换发布为最终 `.h5`。因此普通中断不会再留下被后续训练误用的空 H5 文件。
+
+训练阶段每次周期性下游验证写完 `metrics/downstream_epoch_NNN.json` 后，会自动清理中间 embedding。保留集合是 Classification `regular_f1`、Retrieval `regular_map10`、Progression `val_score` 和 Kendall `val_tau` 各自当前最佳 epoch 的并集，因此最多保留四个 `artifacts/embeddings/epoch_NNN/` 目录。多个任务共享同一最佳 epoch 时只保留一份。选择依据和被删除目录记录在 `metrics/embedding_retention.json`；checkpoint、逐周期指标 JSON、日志和配置不受清理影响。
+
 输出目录：
 
 ```text

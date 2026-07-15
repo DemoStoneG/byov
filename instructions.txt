@@ -31,21 +31,22 @@ done
 --eval
 bash scripts/eval.sh \
   --dataset break_eggs \
-  --checkpoint /root/autodl-tmp/datasets/AE2/AE2_ckpts/break_eggs.ckpt \
+  --training-run /root/autodl-tmp/experiments/byov_training/break_eggs/20260714_185540_byov_clip_vit_b16_clip_bs4_lr1e-5_seed42 \
+  --checkpoint-selection val_loss \
   --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
-  --output-root /root/autodl-tmp/experiments/byov \
-  --run-name official_precomputed_eval \
+  --output-root /root/autodl-tmp/experiments/byov_comparisons/byov_clip_vit_b16 \
+  --vision-encoder-path /root/autodl-tmp/ai_models/openai-clip-vit-base-patch16 \
+  --run-name best_valloss_checkpoint_test \
   --eval-mode test \
-  --embedding-file-split val \
-  --embedding-dir /root/autodl-tmp/datasets/AE2/AE2_ckpts/break_eggs_eval
+  --eval-tasks 1234 \
 
   bash scripts/eval_all.sh \
-  --checkpoint-root /root/autodl-tmp/datasets/BYOV/BYOV_ckpts \
+  --training-root /root/autodl-tmp/experiments/byov_training \
   --dataset-root /root/autodl-tmp/datasets/AE2/AE2_data \
   --output-root /root/autodl-tmp/experiments/byov_comparisons \
   --backbone-label byov_clip_vit_b16 \
-  --backbone base \
+  --checkpoint-selection val_loss \
+  --run-name-filter byov_clip_vit_b16 \
   --vision-encoder-path /root/autodl-tmp/ai_models/openai-clip-vit-base-patch16 \
   --eval-mode test \
-  --eval-tasks 1234 \
-  --extract-embedding
+  --eval-tasks 1234

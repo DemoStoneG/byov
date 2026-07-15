@@ -1,7 +1,11 @@
 import copy
+import glob
 import json
 import logging
+import math
 import os
+import re
+import shutil
 import numpy as np
 import torch
 import random
@@ -16,6 +20,77 @@ from evaluation.kendalls_tau import kendalls_tau
 from utils.pos_embed import interpolate_pos_embed
 
 logger = logging.getLogger(__name__)
+
+
+DOWNSTREAM_RETENTION_METRICS = {
+    'classification': ('classification', 'regular_f1'),
+    'retrieval': ('retrieval', 'regular_map10'),
+    'progression': ('progression', 'val_score'),
+    'kendall': ('kendall', 'val_tau'),
+}
+
+
+def prune_downstream_embeddings(metrics_dir, artifacts_dir):
+    """Keep only the embedding epochs that are currently best for a downstream task."""
+    best_by_task = {}
+    metric_paths = sorted(glob.glob(os.path.join(metrics_dir, 'downstream_epoch_*.json')))
+    for metrics_path in metric_paths:
+        try:
+            with open(metrics_path, 'r') as f:
+                metrics = json.load(f)
+            epoch = int(metrics['epoch'])
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            logger.warning('Skipping invalid downstream metrics file %s: %s', metrics_path, exc)
+            continue
+        for task, (section, score_key) in DOWNSTREAM_RETENTION_METRICS.items():
+            try:
+                score = float(metrics[section][score_key])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not math.isfinite(score):
+                logger.warning(
+                    'Ignoring non-finite %s score in %s: %s', task, metrics_path, score
+                )
+                continue
+            previous = best_by_task.get(task)
+            # Strict comparison matches save_top_k=1 behavior and keeps the earlier epoch on ties.
+            if previous is None or score > previous['score']:
+                best_by_task[task] = {
+                    'epoch': epoch,
+                    'score': score,
+                    'metrics_file': os.path.basename(metrics_path),
+                }
+
+    keep_epochs = {record['epoch'] for record in best_by_task.values()}
+    embeddings_root = os.path.join(artifacts_dir, 'embeddings')
+    removed = []
+    if os.path.isdir(embeddings_root):
+        for path in glob.glob(os.path.join(embeddings_root, 'epoch_*')):
+            if not os.path.isdir(path):
+                continue
+            match = re.fullmatch(r'epoch_(\d+)', os.path.basename(path))
+            if match is None:
+                continue
+            epoch = int(match.group(1))
+            if epoch not in keep_epochs:
+                shutil.rmtree(path)
+                removed.append(os.path.basename(path))
+
+    retention = {
+        'policy': 'keep_current_best_epoch_per_downstream_task',
+        'best_by_task': best_by_task,
+        'kept_embedding_epochs': sorted(keep_epochs),
+        'removed_embedding_directories': removed,
+    }
+    retention_path = os.path.join(metrics_dir, 'embedding_retention.json')
+    with open(retention_path, 'w') as f:
+        json.dump(retention, f, indent=4)
+    logger.info(
+        'Embedding retention kept epochs %s and removed %s',
+        retention['kept_embedding_epochs'],
+        removed,
+    )
+    return retention
 
 
 class VideoAlignment(LightningModule):
@@ -204,6 +279,7 @@ class VideoAlignment(LightningModule):
             with open(metrics_path, 'w') as f:
                 json.dump(metrics, f, indent=4)
             logger.info('Saved downstream metrics to %s', metrics_path)
+            prune_downstream_embeddings(self.args.metrics_dir, self.args.artifacts_dir)
 
     def configure_optimizers(self):
         trainable_parameters = [parameter for parameter in self.parameters() if parameter.requires_grad]

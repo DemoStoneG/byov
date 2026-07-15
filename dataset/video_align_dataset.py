@@ -80,22 +80,23 @@ class VideoAlignmentDataset(Dataset):
 
     def get_frames_h5py(self, h5_file_path, frames_list):
         final_frames = list()
-        h5_file = h5py.File(h5_file_path, 'r')
-        frames = h5_file['images']
-        for frame_num in frames_list:
-            frame_ = frames[frame_num]
-            frame = cv2.resize(
-                frame_,
-                (self.args.input_size, self.args.input_size),
-                interpolation=cv2.INTER_CUBIC
-            )
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frame = frame.astype(np.float32) / 255.0
-            frame = (frame - self.image_mean) / self.image_std
+        with h5py.File(h5_file_path, 'r') as h5_file:
+            if 'images' not in h5_file:
+                raise RuntimeError(f"Invalid H5 frame cache (missing 'images'): {h5_file_path}")
+            frames = h5_file['images']
+            for frame_num in frames_list:
+                frame_ = frames[frame_num]
+                frame = cv2.resize(
+                    frame_,
+                    (self.args.input_size, self.args.input_size),
+                    interpolation=cv2.INTER_CUBIC
+                )
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame = frame.astype(np.float32) / 255.0
+                frame = (frame - self.image_mean) / self.image_std
 
-            final_frames.append(frame)
+                final_frames.append(frame)
 
-        h5_file.close()
         assert len(final_frames) == len(frames_list)
         return final_frames
 

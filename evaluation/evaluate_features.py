@@ -10,9 +10,47 @@ if project_root not in sys.path:
 
 from utils.config import argparser
 from utils.experiment import prepare_experiment, save_run_metadata, setup_logging
+from utils.training_checkpoint import resolve_checkpoint
 
 
 logger = logging.getLogger(__name__)
+
+
+TRAINING_MODEL_FIELDS = (
+    'base_model_name', 'input_size', 'num_frames', 'num_tokens', 'hidden_dim',
+    'n_layers', 'n_layers_dec', 'n_heads', 'mlp_ratio', 'dp_rate',
+    'embedding_size', 'decoder_embedding_size', 'topk_ratio', 'mask_ratio',
+)
+
+
+def _configure_from_training_run(args, argv):
+    if not args.training_run:
+        return None
+    if args.ckpt:
+        raise ValueError('Use either --training_run or --ckpt, not both')
+    training_run = os.path.abspath(args.training_run)
+    config_path = os.path.join(training_run, 'config', 'args.json')
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError(f'Training configuration not found: {config_path}')
+    with open(config_path, 'r') as f:
+        training_args = json.load(f)
+    trained_dataset = training_args.get('dataset')
+    if trained_dataset and trained_dataset != args.dataset:
+        raise ValueError(
+            f'Training run dataset is {trained_dataset!r}, but evaluation requested {args.dataset!r}'
+        )
+    for field in TRAINING_MODEL_FIELDS:
+        if field in training_args:
+            setattr(args, field, training_args[field])
+    explicitly_set_vision_path = any(
+        token in ('--vision_encoder_path', '--vision-encoder-path') for token in argv
+    )
+    if not explicitly_set_vision_path and training_args.get('vision_encoder_path'):
+        args.vision_encoder_path = training_args['vision_encoder_path']
+    args.ckpt, selection = resolve_checkpoint(training_run, args.checkpoint_selection)
+    selection['training_run'] = training_run
+    selection['training_config'] = config_path
+    return selection
 
 
 def prepare_data_loader(args, mode, batch_size=1, num_workers=0):
@@ -197,6 +235,7 @@ def _validate_precomputed_files(embeddings_dir, file_split, dataset_eval, datase
 
 def main():
     args = argparser.parse_args()
+    checkpoint_selection = _configure_from_training_run(args, sys.argv[1:])
     _validate_eval_plan(args)
     args, _is_resume = prepare_experiment(args)
     setup_logging(args.logs_dir, filename='eval.log')
@@ -210,10 +249,13 @@ def main():
     embedding_file_split = args.embedding_file_split or args.eval_mode
     plan = {
         'mode': args.eval_mode,
-        'embedding_file_split': embedding_file_split,
+        'train_embedding_file_split': 'train' if set(args.eval_task) & set('13') else None,
+        'eval_embedding_file_split': embedding_file_split,
         'tasks': list(args.eval_task),
         'no_downstream_fit': bool(args.no_downstream_fit),
         'checkpoint': os.path.abspath(args.ckpt) if args.ckpt else '',
+        'training_run': os.path.abspath(args.training_run) if args.training_run else '',
+        'checkpoint_selection': checkpoint_selection,
         'vision_encoder_path': os.path.abspath(args.vision_encoder_path),
         'embeddings_dir': embeddings_dir,
         'uses_precomputed_embeddings': bool(args.embedding_dir and not args.extract_embedding),
@@ -264,6 +306,12 @@ def main():
         encoder = byov_encoder(args).to(device)
         encoder.eval()
         load_report = load_ckpt(encoder, args.ckpt)
+        if args.training_run and (load_report['missing_keys'] or load_report['unexpected_keys']):
+            raise RuntimeError(
+                'The selected training checkpoint did not exactly restore the BYOV encoder: '
+                f'missing={load_report["missing_keys"]}, '
+                f'unexpected={load_report["unexpected_keys"]}'
+            )
         _write_json(os.path.join(args.config_dir, 'checkpoint_load.json'), load_report)
         base_model = Embedder(args).to(device)
         base_model.eval()
@@ -311,7 +359,8 @@ def main():
         'embedding_source': embeddings_dir,
         'parameters': {
             'tasks': list(args.eval_task),
-            'embedding_file_split': embedding_file_split,
+            'train_embedding_file_split': 'train' if needs_train_split else None,
+            'eval_embedding_file_split': embedding_file_split,
             'uses_precomputed_embeddings': bool(args.embedding_dir and not args.extract_embedding),
             'fits_downstream_svm': '1' in args.eval_task,
             'fits_downstream_linear_regressor': '3' in args.eval_task,
@@ -335,6 +384,8 @@ def main():
         metrics['backbone'] = backbone_info
     if load_report is not None:
         metrics['checkpoint_load'] = load_report
+    if checkpoint_selection is not None:
+        metrics['checkpoint_selection'] = checkpoint_selection
 
     if '1' in args.eval_task:
         regular, ego2exo, exo2ego = classification(
